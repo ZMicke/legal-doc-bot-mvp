@@ -13,29 +13,33 @@ def build_claim_improvement_prompt(
     law_articles: list[dict],
     user_request: str,
     manual_fields: dict | None = None,
+    claim_classification: dict | None = None,
 ) -> str:
     manual_fields = manual_fields or {}
+    claim_classification = claim_classification or {}
 
     return f"""
 Ты юридический помощник предприятия.
 
-Твоя задача — отредактировать уже подготовленную претензию в официальном деловом стиле.
+Сформируй итоговую претензию строго в соответствии с claim_type и claim_title.
+Если claim_type=payment_delay, не используй формулировки про оказание услуг, если это прямо не следует из договора.
+Если claim_type отличается от services_delay, не превращай документ в претензию по оказанию услуг.
 
-Верни только финальный текст претензии. Не добавляй комментарии, пояснения, вступления вроде "Вот исправленный вариант".
-Результат должен быть обычным текстом официального документа. Не используй Markdown-разметку.
+Результат — только текст официального документа без Markdown.
+Не добавляй комментарии, пояснения, вступления вроде "Вот исправленный вариант".
 
 КРИТИЧЕСКИ ВАЖНО:
-1. Не меняй факты из черновика.
+1. Не меняй тип претензии и заголовок по смыслу.
 2. Не выдумывай адреса, даты, суммы, реквизиты, номера договоров и обстоятельства.
 3. Не меняй ручные поля пользователя: sender_name, sender_address, recipient_name, recipient_address, violation_date, penalty_amount, response_deadline.
-4. Если в ручных полях указаны данные, они имеют приоритет над анализом договора.
-5. Не меняй сумму неустойки, если она указана вручную.
-6. Не добавляй статьи закона, которых нет в найденных правовых основаниях.
-7. Используй только правовые основания из law_articles.
-8. Сохрани структуру документа: адресат, отправитель, ПРЕТЕНЗИЯ, разделы 1-7, дата, подпись.
-9. Не используй **жирный текст**, markdown-списки, таблицы и декоративные элементы.
+4. Не добавляй статьи закона, которых нет в law_articles.
+5. Не используй markdown-разметку, таблицы и декоративные элементы.
+6. Сохрани структуру официального документа и деловой тон.
 
-Ручные поля пользователя, которые нельзя менять:
+Классификация претензии:
+{claim_classification}
+
+Ручные поля пользователя:
 {manual_fields}
 
 Запрос пользователя:
@@ -49,8 +53,6 @@ def build_claim_improvement_prompt(
 
 Черновик претензии:
 {draft_claim}
-
-Сформируй итоговую претензию официальным юридическим стилем, без разговорных формулировок.
 """
 
 
@@ -65,13 +67,10 @@ def call_openrouter(prompt: str) -> str:
                 "role": "system",
                 "content": (
                     "Ты юридический помощник. Верни только текст официальной претензии "
-                    "без Markdown и без изменения фактов."
+                    "без Markdown, без смены темы и без изменения фактов."
                 ),
             },
-            {
-                "role": "user",
-                "content": prompt,
-            },
+            {"role": "user", "content": prompt},
         ],
         "temperature": 0.1,
     }
@@ -108,28 +107,19 @@ def call_ollama(prompt: str) -> str:
                 "role": "system",
                 "content": (
                     "Ты юридический помощник. Верни только текст официальной претензии "
-                    "без Markdown и без изменения фактов."
+                    "без Markdown, без смены темы и без изменения фактов."
                 ),
             },
-            {
-                "role": "user",
-                "content": prompt,
-            },
+            {"role": "user", "content": prompt},
         ],
         "stream": False,
-        "options": {
-            "temperature": 0.1,
-        },
+        "options": {"temperature": 0.1},
     }
 
     url = f"{settings.OLLAMA_BASE_URL}/api/chat"
 
     try:
-        response = requests.post(
-            url,
-            json=payload,
-            timeout=180,
-        )
+        response = requests.post(url, json=payload, timeout=180)
         response.raise_for_status()
     except requests.RequestException as error:
         raise LLMError(f"Ошибка Ollama: {error}")
@@ -148,6 +138,7 @@ def improve_claim_with_llm(
     law_articles: list[dict],
     user_request: str,
     manual_fields: dict | None = None,
+    claim_classification: dict | None = None,
 ) -> str:
     prompt = build_claim_improvement_prompt(
         draft_claim=draft_claim,
@@ -155,6 +146,7 @@ def improve_claim_with_llm(
         law_articles=law_articles,
         user_request=user_request,
         manual_fields=manual_fields,
+        claim_classification=claim_classification,
     )
 
     provider = settings.LLM_PROVIDER.lower().strip()

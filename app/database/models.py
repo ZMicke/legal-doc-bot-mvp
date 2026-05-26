@@ -25,3 +25,4 @@ class ClaimRequest(Base):
     result_text = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     docx_path = Column(String, nullable=True)
+    trace_json = Column(Text, nullable=True)

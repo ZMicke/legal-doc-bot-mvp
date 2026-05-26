@@ -7,12 +7,15 @@ from app.services.web_legal_search import web_legal_fallback
 
 
 LAW_PATH = Path("app/knowledge/law_gk.json")
-MANDATORY_DELAY_ARTICLES = [
-    "ст. 309 ГК РФ",
-    "ст. 314 ГК РФ",
-    "ст. 330 ГК РФ",
-    "ст. 779 ГК РФ",
-]
+
+CLAIM_TYPE_REQUIRED_ARTICLES = {
+    "services_delay": ["ст. 309 ГК РФ", "ст. 314 ГК РФ", "ст. 330 ГК РФ", "ст. 779 ГК РФ"],
+    "payment_delay": ["ст. 309 ГК РФ", "ст. 310 ГК РФ", "ст. 314 ГК РФ", "ст. 395 ГК РФ"],
+    "delivery_delay": ["ст. 309 ГК РФ", "ст. 314 ГК РФ", "ст. 330 ГК РФ", "ст. 506 ГК РФ", "ст. 521 ГК РФ"],
+    "defective_goods": ["ст. 309 ГК РФ", "ст. 469 ГК РФ", "ст. 475 ГК РФ", "ст. 518 ГК РФ"],
+    "refund": ["ст. 309 ГК РФ", "ст. 310 ГК РФ", "ст. 1102 ГК РФ"],
+    "custom": ["ст. 309 ГК РФ", "ст. 310 ГК РФ"],
+}
 
 
 def load_law_base() -> list[dict]:
@@ -41,6 +44,7 @@ def normalize_law_item(item: dict, source: str = "base_law") -> dict:
         "article": item.get("article"),
         "text": item.get("text") or item.get("content"),
         "source_url": item.get("source_url"),
+        "source_type": item.get("source_type"),
     }
 
 
@@ -76,21 +80,38 @@ def unique_items(items: list[dict]) -> list[dict]:
     return result
 
 
-def add_mandatory_delay_articles(items: list[dict], base_law: list[dict]) -> list[dict]:
+def required_articles_for_claim(
+    claim_type: str | None,
+    required_articles: list[str] | None = None,
+) -> list[str]:
+    result = list(CLAIM_TYPE_REQUIRED_ARTICLES.get(claim_type or "custom", []))
+
+    for article in required_articles or []:
+        if article not in result:
+            result.append(article)
+
+    return result
+
+
+def add_required_articles(
+    items: list[dict],
+    base_law: list[dict],
+    required_articles: list[str],
+) -> list[dict]:
     existing_articles = {
         str(item.get("article") or "").lower()
         for item in items
     }
 
-    for mandatory_article in MANDATORY_DELAY_ARTICLES:
-        if mandatory_article.lower() in existing_articles:
+    for article in required_articles:
+        if article.lower() in existing_articles:
             continue
 
         found = next(
             (
                 item
                 for item in base_law
-                if str(item.get("article") or "").lower() == mandatory_article.lower()
+                if str(item.get("article") or "").lower() == article.lower()
             ),
             None,
         )
@@ -104,30 +125,32 @@ def add_mandatory_delay_articles(items: list[dict], base_law: list[dict]) -> lis
     return items
 
 
-def has_all_mandatory_articles(items: list[dict]) -> bool:
-    existing_articles = {
-        str(item.get("article") or "").lower()
-        for item in items
-    }
-
-    return all(
-        article.lower() in existing_articles
-        for article in MANDATORY_DELAY_ARTICLES
+def retrieve_law_articles(
+    query: str,
+    claim_type: str | None = None,
+    required_articles: list[str] | None = None,
+    top_k: int = 8,
+) -> list[dict]:
+    result = retrieve_law_articles_with_fallback(
+        query=query,
+        claim_type=claim_type,
+        required_articles=required_articles,
+        top_k=top_k,
+        use_web=False,
     )
-
-
-def retrieve_law_articles(query: str, top_k: int = 8) -> list[dict]:
-    result = retrieve_law_articles_with_fallback(query=query, top_k=top_k, use_web=False)
     return result["items"]
 
 
 def retrieve_law_articles_with_fallback(
     query: str,
+    claim_type: str | None = None,
+    required_articles: list[str] | None = None,
     top_k: int = 8,
     use_web: bool = True,
 ) -> dict:
     base_law = load_law_base()
     custom_knowledge = load_custom_knowledge()
+    required = required_articles_for_claim(claim_type, required_articles)
 
     candidates = []
 
@@ -138,7 +161,6 @@ def retrieve_law_articles_with_fallback(
             " ".join(item.get("keywords", [])),
             item.get("text", ""),
         ])
-
         score = score_text(query, text_for_search)
 
         if score > 0:
@@ -153,7 +175,6 @@ def retrieve_law_articles_with_fallback(
             item.get("content", ""),
             item.get("source_url", "") or "",
         ])
-
         score = score_text(query, text_for_search)
 
         if score > 0:
@@ -161,29 +182,24 @@ def retrieve_law_articles_with_fallback(
             normalized["score"] = score
             candidates.append(normalized)
 
-    vector_items = search_vector_store(query, top_k=top_k)
-    candidates.extend(vector_items)
-
+    candidates.extend(search_vector_store(query, top_k=top_k))
     candidates.sort(key=lambda item: item.get("score", 0), reverse=True)
     candidates = unique_items(candidates)
+
     relevant_count = len(candidates)
-    candidates = add_mandatory_delay_articles(candidates, base_law)
-    candidates.sort(
-        key=lambda item: (item.get("mandatory", False), item.get("score", 0)),
-        reverse=True,
-    )
+    candidates = add_required_articles(candidates, base_law, required)
 
     web_fallback_used = False
     web_error = None
 
-    if use_web and (relevant_count < 2 or not has_all_mandatory_articles(candidates)):
+    if use_web and relevant_count < 2:
         web_result = web_legal_fallback(query)
         web_fallback_used = bool(web_result.get("used"))
         web_error = web_result.get("web_error")
         candidates.extend(web_result.get("items", []))
         candidates = unique_items(candidates)
+        candidates = add_required_articles(candidates, base_law, required)
 
-    candidates = add_mandatory_delay_articles(candidates, base_law)
     candidates.sort(
         key=lambda item: (item.get("mandatory", False), item.get("score", 0)),
         reverse=True,
@@ -194,4 +210,5 @@ def retrieve_law_articles_with_fallback(
         "web_fallback_used": web_fallback_used,
         "web_error": web_error,
         "vector_error": get_vector_error(),
+        "required_articles": required,
     }

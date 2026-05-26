@@ -33,8 +33,15 @@ def ensure_database_schema(engine: Engine, retries: int = 20, delay_seconds: int
         for column in inspector.get_columns(ClaimRequest.__tablename__)
     }
 
+    missing_columns = []
+
     if "docx_path" not in claim_columns:
+        missing_columns.append("ADD COLUMN docx_path VARCHAR")
+
+    if "trace_json" not in claim_columns:
+        missing_columns.append("ADD COLUMN trace_json TEXT")
+
+    if missing_columns:
         with engine.begin() as connection:
-            connection.execute(
-                text("ALTER TABLE claim_requests ADD COLUMN docx_path VARCHAR")
-            )
+            for statement in missing_columns:
+                connection.execute(text(f"ALTER TABLE claim_requests {statement}"))

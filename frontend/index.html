@@ -8,197 +8,182 @@
   <script defer src="./app.js"></script>
 </head>
 <body>
+  <header class="app-header">
+    <div class="header-inner">
+      <h1>Legal Document Bot</h1>
+      <nav class="tabs" aria-label="Основные разделы">
+        <button type="button" class="tab-button active" data-tab="create" onclick="switchTab('create')">Создать претензию</button>
+        <button type="button" class="tab-button" data-tab="history" onclick="switchTab('history')">История</button>
+        <button type="button" class="tab-button" data-tab="knowledge" onclick="switchTab('knowledge')">База знаний</button>
+      </nav>
+    </div>
+  </header>
+
   <main class="app-shell">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">Legal Document Bot</p>
-        <h1>Подготовка претензий по договорам</h1>
+    <section id="tab-create" class="tab-panel active" aria-labelledby="create-title">
+      <div class="progress-steps" aria-label="Этапы подготовки претензии">
+        <div class="progress-step active" id="step-contract"><span>1</span>Договор</div>
+        <div class="progress-step" id="step-problem"><span>2</span>Проблема</div>
+        <div class="progress-step" id="step-details"><span>3</span>Данные</div>
+        <div class="progress-step" id="step-result"><span>4</span>Результат</div>
       </div>
-      <div id="globalStatus" class="status-pill info">Готов к работе</div>
-    </header>
 
-    <section class="workspace-grid">
-      <div class="main-column">
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <span class="step">1</span>
-              <h2>Загрузка договора</h2>
+      <div class="create-layout">
+        <div class="form-stack">
+          <section class="card" aria-labelledby="upload-title">
+            <div class="card-header">
+              <div>
+                <p class="section-kicker">Шаг 1</p>
+                <h2 id="upload-title">Загрузите договор</h2>
+              </div>
+              <span id="uploadStatus" class="status-badge neutral">Ожидает файл</span>
             </div>
-            <span id="uploadStatus" class="status-text">Ожидает файл</span>
-          </div>
-
-          <div class="upload-box">
-            <label class="file-field">
-              <span>Файл договора</span>
-              <input type="file" id="contractFile" accept=".txt,.docx,.pdf" />
-            </label>
-            <button type="button" id="uploadButton" onclick="uploadDocument()">Загрузить договор</button>
-          </div>
-
-          <div id="fileInfo" class="file-info empty">
-            <span>file_id появится после загрузки</span>
-            <button type="button" class="ghost small" id="copyFileIdButton" onclick="copyFileId()" disabled>Скопировать file_id</button>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <span class="step">2</span>
-              <h2>Параметры претензии</h2>
+            <div class="upload-row">
+              <label class="file-picker">
+                <span>Файл договора</span>
+                <input type="file" id="contractFile" accept=".txt,.docx,.pdf" />
+              </label>
+              <button type="button" id="uploadButton" onclick="uploadDocument()">Загрузить договор</button>
             </div>
-            <label class="switch">
-              <input type="checkbox" id="useLlm" checked />
-              <span>Использовать LLM</span>
-            </label>
-          </div>
+            <div id="fileInfo" class="file-summary empty">Выберите файл в формате TXT, DOCX или PDF.</div>
+          </section>
 
-          <label>
-            Запрос пользователя
-            <textarea id="userRequest" rows="3">Составь претензию по просрочке оказания услуг с ссылками на законодательство</textarea>
-          </label>
-
-          <div class="form-grid">
-            <label>
-              Дата нарушения
-              <input id="violationDate" value="15.05.2026" />
-            </label>
-            <label>
-              Срок ответа
-              <input id="responseDeadline" value="10" />
-            </label>
-            <label>
-              Размер неустойки
-              <input id="penaltyAmount" value="50 000 рублей" />
-            </label>
-            <label>
-              Отправитель
-              <input id="senderName" value="АО «Челябинский цинковый завод»" />
-            </label>
-            <label>
-              Адрес отправителя
-              <input id="senderAddress" placeholder="Юридический адрес отправителя" />
-            </label>
-            <label>
-              Получатель
-              <input id="recipientName" placeholder="Например: ООО «Исполнитель»" />
-            </label>
-            <label>
-              Адрес получателя
-              <input id="recipientAddress" placeholder="Юридический адрес получателя" />
-            </label>
-          </div>
-
-          <label>
-            Описание нарушения
-            <textarea id="violationDescription" rows="3">Исполнитель не оказал услуги в срок, установленный договором.</textarea>
-          </label>
-
-          <div class="actions">
-            <button type="button" id="generateButton" onclick="generateClaim()">Сгенерировать претензию</button>
-            <button type="button" class="secondary" onclick="resetForm()">Очистить форму</button>
-          </div>
-          <p id="generationStatus" class="inline-status">Генерация не запускалась</p>
-        </section>
-
-        <section class="panel result-panel">
-          <div class="panel-heading">
-            <div>
-              <span class="step">3</span>
-              <h2>Результат генерации</h2>
+          <section class="card" aria-labelledby="problem-title">
+            <div class="card-header">
+              <div>
+                <p class="section-kicker">Шаг 2</p>
+                <h2 id="problem-title">Опишите проблему</h2>
+              </div>
             </div>
-            <div class="actions compact">
+            <label>
+              <span>Опишите ситуацию своими словами</span>
+              <textarea id="userRequest" rows="5" placeholder="Например: составь претензию по неоплате по договору"></textarea>
+            </label>
+            <div class="chips" aria-label="Примеры запросов">
+              <button type="button" class="chip" onclick="useExample('Составь претензию по просрочке оказания услуг')">Просрочка оказания услуг</button>
+              <button type="button" class="chip" onclick="useExample('Составь претензию по неоплате по договору')">Неоплата по договору</button>
+              <button type="button" class="chip" onclick="useExample('Составь претензию по просрочке поставки товара')">Просрочка поставки</button>
+              <button type="button" class="chip" onclick="useExample('Составь претензию по некачественному товару')">Некачественный товар</button>
+              <button type="button" class="chip" onclick="useExample('Составь претензию на возврат денежных средств')">Возврат денежных средств</button>
+            </div>
+          </section>
+
+          <section class="card" aria-labelledby="details-title">
+            <div class="card-header">
+              <div>
+                <p class="section-kicker">Шаг 3</p>
+                <h2 id="details-title">Уточните данные</h2>
+              </div>
+            </div>
+            <div class="field-grid">
+              <label><span>Дата нарушения</span><input id="violationDate" placeholder="Например: 15.05.2026" /></label>
+              <label><span>Сумма требований / неустойки</span><input id="penaltyAmount" placeholder="Например: 50 000 рублей" /></label>
+              <label><span>Срок ответа</span><input id="responseDeadline" value="10" /></label>
+              <label><span>Отправитель</span><input id="senderName" placeholder="Ваша организация" /></label>
+              <label><span>Получатель</span><input id="recipientName" placeholder="Контрагент" /></label>
+            </div>
+            <label>
+              <span>Описание нарушения</span>
+              <textarea id="violationDescription" rows="4" placeholder="Кратко укажите, что именно нарушено и какие последствия возникли"></textarea>
+            </label>
+            <details class="details-panel">
+              <summary>Дополнительные реквизиты</summary>
+              <div class="field-grid">
+                <label><span>Адрес отправителя</span><input id="senderAddress" placeholder="Адрес вашей организации" /></label>
+                <label><span>Адрес получателя</span><input id="recipientAddress" placeholder="Адрес контрагента" /></label>
+              </div>
+            </details>
+            <div class="action-row">
+              <button type="button" id="generateButton" onclick="generateClaim()" disabled>Сформировать претензию</button>
+              <button type="button" class="secondary" onclick="resetClaimForm()">Очистить форму</button>
+            </div>
+          </section>
+        </div>
+
+        <aside class="result-column" aria-labelledby="result-title">
+          <section class="card result-card">
+            <div class="card-header">
+              <div>
+                <p class="section-kicker">Шаг 4</p>
+                <h2 id="result-title">Результат</h2>
+              </div>
+            </div>
+            <div id="generationStatus" class="subtle-status">Претензия еще не сформирована.</div>
+            <div id="resultActions" class="document-actions hidden">
+              <a id="downloadLink" class="button" href="#" target="_blank" rel="noreferrer" aria-disabled="true">Скачать DOCX</a>
               <button type="button" class="secondary" id="copyClaimButton" onclick="copyClaimText()" disabled>Скопировать текст</button>
-              <a id="downloadLink" class="button disabled" href="#" target="_blank" rel="noreferrer" aria-disabled="true">Скачать DOCX</a>
+              <button type="button" class="secondary" onclick="resetClaimForm()">Новая претензия</button>
             </div>
-          </div>
-
-          <div id="resultMeta" class="meta-row">
-            <span class="status-pill muted">Претензия ещё не сформирована</span>
-          </div>
-          <div id="claimResult" class="claim-text">Здесь появится готовый текст претензии.</div>
-
-          <h3>Найденные правовые основания</h3>
-          <div id="lawArticlesOutput" class="law-list empty">Источники появятся после генерации.</div>
-
-          <div id="warningsOutput" class="message-list"></div>
-        </section>
+            <div id="claimResult" class="document-card empty">После генерации здесь появится готовый текст претензии.</div>
+            <div id="lawArticlesOutput" class="legal-basis empty"></div>
+            <div id="warningsOutput" class="warnings-list"></div>
+          </section>
+        </aside>
       </div>
+    </section>
 
-      <aside class="side-column">
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <span class="step">4</span>
-              <h2>История документов</h2>
-            </div>
+    <section id="tab-history" class="tab-panel" aria-labelledby="history-title">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">Последние документы</p>
+            <h2 id="history-title">История претензий</h2>
           </div>
-          <div class="actions stacked">
-            <button type="button" id="loadHistoryButton" onclick="loadHistory()">Обновить историю</button>
+          <div class="header-actions">
+            <button type="button" class="secondary" id="loadHistoryButton" onclick="loadHistory()">Обновить</button>
             <button type="button" class="danger" id="clearHistoryButton" onclick="clearHistory()">Очистить историю</button>
           </div>
-          <div id="historyOutput" class="history-list empty">История пока не загружена.</div>
-        </section>
+        </div>
+        <div id="historyOutput" class="history-list empty">История пока пуста. Сформируйте первую претензию.</div>
+      </section>
+    </section>
 
-        <section class="panel rag-panel">
-          <div class="panel-heading">
+    <section id="tab-knowledge" class="tab-panel" aria-labelledby="knowledge-title">
+      <div class="knowledge-grid">
+        <section class="card" aria-labelledby="rag-url-title">
+          <div class="card-header">
             <div>
-              <span class="step">5</span>
-              <h2>База знаний RAG</h2>
+              <p class="section-kicker">Источник</p>
+              <h2 id="rag-url-title">Добавить ссылку</h2>
             </div>
           </div>
+          <label><span>Название материала</span><input id="ragUrlTitle" placeholder="Например: судебная практика по поставке" /></label>
+          <label><span>Тип источника</span><input id="ragUrlSourceType" placeholder="Официальный источник" /></label>
+          <label><span>URL</span><input id="ragSourceUrl" placeholder="https://..." /></label>
+          <button type="button" id="addRagUrlButton" onclick="addRagUrl()">Добавить ссылку</button>
+        </section>
 
-          <div class="rag-section">
-            <h3>Добавить материал по ссылке</h3>
-            <label>
-              Название материала
-              <input id="ragUrlTitle" placeholder="Например: Обзор судебной практики" />
-            </label>
-            <label>
-              Тип источника
-              <input id="ragUrlSourceType" placeholder="official_url" />
-            </label>
-            <label>
-              URL
-              <input id="ragSourceUrl" placeholder="https://..." />
-            </label>
-            <button type="button" id="addRagUrlButton" onclick="addKnowledgeUrl()">Добавить ссылку в RAG</button>
-          </div>
-
-          <div class="rag-section">
-            <h3>Загрузить документ в RAG</h3>
-            <label>
-              Название материала
-              <input id="ragFileTitle" placeholder="Например: Внутренний регламент" />
-            </label>
-            <label>
-              Тип источника
-              <input id="ragFileSourceType" placeholder="internal_document" />
-            </label>
-            <label>
-              Файл
-              <input type="file" id="ragFile" accept=".txt,.docx,.pdf" />
-            </label>
-            <button type="button" id="uploadRagFileButton" onclick="uploadKnowledgeFile()">Загрузить документ в RAG</button>
-          </div>
-
-          <div class="rag-section">
-            <div class="actions stacked">
-              <button type="button" id="loadKnowledgeButton" onclick="loadKnowledgeList()">Обновить список RAG</button>
-              <button type="button" id="reindexButton" onclick="reindexKnowledge()">Переиндексировать RAG</button>
+        <section class="card" aria-labelledby="rag-file-title">
+          <div class="card-header">
+            <div>
+              <p class="section-kicker">Документ</p>
+              <h2 id="rag-file-title">Загрузить документ</h2>
             </div>
-            <div id="maintenanceOutput" class="service-output">Операции с RAG ещё не запускались.</div>
-            <div id="knowledgeListOutput" class="knowledge-list empty">Список материалов пока не загружен.</div>
           </div>
+          <label><span>Название материала</span><input id="ragFileTitle" placeholder="Например: внутренний регламент" /></label>
+          <label><span>Тип источника</span><input id="ragFileSourceType" placeholder="Внутренний документ" /></label>
+          <label class="file-picker"><span>Файл</span><input type="file" id="ragFile" accept=".txt,.docx,.pdf" /></label>
+          <button type="button" id="uploadRagFileButton" onclick="uploadRagFile()">Загрузить документ</button>
         </section>
+      </div>
 
-        <section id="messageBox" class="message-box info">
-          <strong>Статус</strong>
-          <span>Готов к работе.</span>
-        </section>
-      </aside>
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="section-kicker">Материалы</p>
+            <h2 id="knowledge-title">База знаний</h2>
+          </div>
+          <div class="header-actions">
+            <button type="button" class="secondary" id="loadKnowledgeButton" onclick="loadKnowledgeList()">Обновить список</button>
+            <button type="button" id="reindexButton" onclick="reindexKnowledge()">Переиндексировать базу</button>
+          </div>
+        </div>
+        <div id="maintenanceOutput" class="service-note">Добавленные материалы используются при подготовке претензий.</div>
+        <div id="knowledgeListOutput" class="knowledge-list empty">База знаний пока пуста.</div>
+      </section>
     </section>
   </main>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

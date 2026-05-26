@@ -77,7 +77,7 @@ def generate_claim_docx(claim_text: str) -> str:
             document.add_paragraph()
             continue
 
-        if clean_line == "ПРЕТЕНЗИЯ":
+        if clean_line.lower().startswith("претензия"):
             add_paragraph(
                 document,
                 clean_line,

@@ -2,52 +2,73 @@ const API_BASE = "http://127.0.0.1:8000";
 
 const state = {
   currentFileId: null,
+  currentFileName: "",
   currentClaimText: "",
   currentDownloadUrl: null,
+  lastResponse: null,
 };
 
 function getElement(id) {
   return document.getElementById(id);
 }
 
-function setLoading(buttonId, isLoading, loadingText = "Выполняется...") {
-  const button = getElement(buttonId);
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
-  if (!button) {
-    return;
+function cleanErrorMessage(error) {
+  const message = error?.message || "Произошла ошибка";
+  if (message.includes("Traceback") || message.includes("sqlalchemy") || message.includes("psycopg2")) {
+    return "Сервер вернул техническую ошибку. Подробности сохранены в консоли разработчика.";
   }
+  return message;
+}
 
+function switchTab(tabName) {
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tab === tabName);
+  });
+  document.querySelectorAll(".tab-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === `tab-${tabName}`);
+  });
+
+  if (tabName === "history") loadHistory(false);
+  if (tabName === "knowledge") loadKnowledgeList(false);
+}
+
+function useExample(text) {
+  getElement("userRequest").value = text;
+  updateSteps();
+}
+
+function setButtonLoading(button, isLoading, loadingText, defaultText) {
+  if (!button) return;
   if (isLoading) {
-    button.dataset.defaultText = button.textContent;
+    button.dataset.defaultText = defaultText || button.textContent;
     button.textContent = loadingText;
     button.disabled = true;
     return;
   }
-
-  button.textContent = button.dataset.defaultText || button.textContent;
+  button.textContent = button.dataset.defaultText || defaultText || button.textContent;
   button.disabled = false;
 }
 
-function showMessage(type, title, text) {
-  const box = getElement("messageBox");
-  const globalStatus = getElement("globalStatus");
-
-  box.className = `message-box ${type}`;
-  box.innerHTML = `<strong>${title}</strong><span>${text}</span>`;
-
-  globalStatus.className = `status-pill ${type}`;
-  globalStatus.textContent = title;
-}
-
-function setInlineStatus(id, text, type = "muted") {
-  const element = getElement(id);
-  element.className = type === "muted" ? "inline-status" : `inline-status ${type}`;
-  element.textContent = text;
+function showToast(message, type = "info") {
+  const container = getElement("toastContainer");
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  window.setTimeout(() => toast.remove(), 4200);
 }
 
 async function parseResponse(response) {
   const text = await response.text();
-
   try {
     return text ? JSON.parse(text) : {};
   } catch (error) {
@@ -57,147 +78,144 @@ async function parseResponse(response) {
 
 async function requestJson(path, options = {}) {
   let response;
-
   try {
     response = await fetch(`${API_BASE}${path}`, options);
   } catch (error) {
-    throw new Error("Backend недоступен. Проверьте, что FastAPI запущен на http://127.0.0.1:8000");
+    console.error(error);
+    throw new Error("Не удалось подключиться к серверу");
   }
 
   const data = await parseResponse(response);
-
   if (!response.ok) {
-    throw new Error(data.detail || `Ошибка backend: ${response.status}`);
+    console.error("Backend error", data);
+    throw new Error(data.detail || `Ошибка сервера: ${response.status}`);
   }
-
   return data;
 }
 
-function updateFileInfo(data) {
-  state.currentFileId = data.file_id;
+function updateSteps() {
+  getElement("step-contract").classList.toggle("done", Boolean(state.currentFileId));
+  getElement("step-problem").classList.toggle("active", !state.currentFileId);
+  getElement("step-problem").classList.toggle("done", Boolean(getElement("userRequest").value.trim()));
+  getElement("step-details").classList.toggle("active", Boolean(state.currentFileId));
+  getElement("step-result").classList.toggle("done", Boolean(state.currentClaimText));
+}
 
-  getElement("fileInfo").classList.remove("empty");
-  getElement("fileInfo").innerHTML = `
-    <div>
-      <span class="muted-text">Текущий file_id</span>
-      <code>${data.file_id}</code>
-    </div>
-    <button type="button" class="ghost small" id="copyFileIdButton" onclick="copyFileId()">Скопировать file_id</button>
-  `;
+function isSupportedFile(file) {
+  return /\.(txt|docx|pdf)$/i.test(file?.name || "");
 }
 
 async function uploadDocument() {
   const fileInput = getElement("contractFile");
-
-  if (!fileInput.files.length) {
-    showMessage("warning", "Файл не выбран", "Выберите договор в формате TXT, DOCX или PDF.");
+  const file = fileInput.files[0];
+  if (!file) {
+    showToast("Выберите договор для загрузки", "warning");
+    return;
+  }
+  if (!isSupportedFile(file)) {
+    showToast("Файл не поддерживается. Используйте TXT, DOCX или PDF", "warning");
     return;
   }
 
+  const button = getElement("uploadButton");
   const formData = new FormData();
-  formData.append("file", fileInput.files[0]);
-
-  setLoading("uploadButton", true, "Загружается...");
-  getElement("uploadStatus").textContent = "Идёт загрузка и извлечение текста";
+  formData.append("file", file);
+  setButtonLoading(button, true, "Загружаем...", "Загрузить договор");
+  getElement("uploadStatus").className = "status-badge neutral";
+  getElement("uploadStatus").textContent = "Загружаем";
 
   try {
-    const data = await requestJson("/documents/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    updateFileInfo(data);
+    const data = await requestJson("/documents/upload", { method: "POST", body: formData });
+    console.log("Document upload response", data);
+    state.currentFileId = data.file_id;
+    state.currentFileName = file.name;
+    getElement("fileInfo").className = "file-summary";
+    getElement("fileInfo").textContent = `Договор загружен: ${file.name}`;
+    getElement("uploadStatus").className = "status-badge success";
     getElement("uploadStatus").textContent = "Договор загружен";
-    showMessage("success", "Договор загружен", `Текст извлечён, file_id: ${data.file_id}`);
+    getElement("generateButton").disabled = false;
+    showToast("Договор загружен", "success");
+    updateSteps();
   } catch (error) {
     console.error(error);
+    getElement("uploadStatus").className = "status-badge error";
     getElement("uploadStatus").textContent = "Ошибка загрузки";
-    showMessage("error", "Ошибка загрузки", error.message);
+    showToast(cleanErrorMessage(error), "error");
   } finally {
-    setLoading("uploadButton", false);
+    setButtonLoading(button, false, "", "Загрузить договор");
   }
 }
 
 function buildManualFields() {
   return {
-    violation_date: getElement("violationDate").value,
-    violation_description: getElement("violationDescription").value,
-    response_deadline: getElement("responseDeadline").value,
-    penalty_amount: getElement("penaltyAmount").value,
-    sender_name: getElement("senderName").value,
-    sender_address: getElement("senderAddress").value,
-    recipient_name: getElement("recipientName").value,
-    recipient_address: getElement("recipientAddress").value,
+    violation_date: getElement("violationDate").value.trim(),
+    violation_description: getElement("violationDescription").value.trim(),
+    response_deadline: getElement("responseDeadline").value.trim(),
+    penalty_amount: getElement("penaltyAmount").value.trim(),
+    sender_name: getElement("senderName").value.trim(),
+    sender_address: getElement("senderAddress").value.trim(),
+    recipient_name: getElement("recipientName").value.trim(),
+    recipient_address: getElement("recipientAddress").value.trim(),
   };
 }
 
-function renderLawArticles(items = []) {
-  const container = getElement("lawArticlesOutput");
-
-  if (!items.length) {
-    container.className = "law-list empty";
-    container.textContent = "Правовые основания не найдены.";
+async function generateClaim() {
+  if (!state.currentFileId) {
+    showToast("Сначала загрузите договор", "warning");
     return;
   }
 
-  container.className = "law-list";
-  container.innerHTML = items.map((item) => {
-    const title = item.article
-      ? `${item.article} — ${item.title || "без названия"}`
-      : item.title || "Источник без названия";
-    const source = item.source ? `<span class="status-pill muted">${item.source}</span>` : "";
-    const mandatory = item.mandatory ? `<span class="status-pill info">обязательная статья</span>` : "";
-    const sourceUrl = item.source_url
-      ? `<a href="${item.source_url}" target="_blank" rel="noreferrer">Открыть источник</a>`
-      : "";
+  const userRequest = getElement("userRequest").value.trim();
+  if (!userRequest) {
+    showToast("Опишите проблему, по которой нужно подготовить претензию", "warning");
+    return;
+  }
 
-    return `
-      <article class="law-item">
-        <p><strong>${title}</strong></p>
-        <div class="meta-row">${source}${mandatory}</div>
-        <p>${(item.text || "").slice(0, 700)}</p>
-        ${sourceUrl}
-      </article>
-    `;
-  }).join("");
-}
+  const button = getElement("generateButton");
+  const payload = {
+    file_id: state.currentFileId,
+    user_request: userRequest,
+    claim_type: "auto",
+    use_llm: true,
+    manual_fields: buildManualFields(),
+  };
 
-function renderWarnings(data) {
-  const warnings = [];
+  setButtonLoading(button, true, "Формируем претензию...", "Сформировать претензию");
+  getElement("generationStatus").textContent = "Анализируем договор и готовим текст претензии...";
 
-  if (data.web_fallback_used) {
-    warnings.push({
-      type: "info",
-      title: "Использовался поиск в интернете",
-      text: "Система дополнительно проверила официальные источники из настроек web fallback.",
+  try {
+    const data = await requestJson("/claims/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
+    console.log("Claim generation response", data);
+    renderGenerationResult(data);
+    showToast("Претензия сформирована", "success");
+    await loadHistory(false);
+  } catch (error) {
+    console.error(error);
+    getElement("generationStatus").textContent = "Не удалось сформировать претензию";
+    showToast(cleanErrorMessage(error), "error");
+  } finally {
+    setButtonLoading(button, false, "", "Сформировать претензию");
   }
-
-  if (data.llm_error) {
-    warnings.push({ type: "warning", title: "LLM недоступна", text: data.llm_error });
-  }
-
-  if (data.web_error) {
-    warnings.push({ type: "warning", title: "Web fallback", text: data.web_error });
-  }
-
-  if (data.vector_error) {
-    warnings.push({ type: "warning", title: "ChromaDB", text: data.vector_error });
-  }
-
-  getElement("warningsOutput").innerHTML = warnings.map((item) => `
-    <div class="message-item ${item.type}">
-      <p><strong>${item.title}</strong></p>
-      <p>${item.text}</p>
-    </div>
-  `).join("");
 }
 
 function renderGenerationResult(data) {
-  state.currentClaimText = data.claim_text || "";
+  state.lastResponse = data;
+  state.currentClaimText = data.claim_text || data.result_text || "";
   state.currentDownloadUrl = data.download_url || null;
 
-  getElement("claimResult").textContent = state.currentClaimText || "Backend не вернул текст претензии.";
+  const result = getElement("claimResult");
+  result.className = "document-card";
+  result.textContent = state.currentClaimText || "Сервер не вернул текст претензии.";
+
+  getElement("generationStatus").textContent = data.claim_request_id
+    ? `Претензия №${data.claim_request_id} готова.`
+    : "Претензия готова.";
+
+  getElement("resultActions").classList.remove("hidden");
   getElement("copyClaimButton").disabled = !state.currentClaimText;
 
   const downloadLink = getElement("downloadLink");
@@ -211,325 +229,306 @@ function renderGenerationResult(data) {
     downloadLink.setAttribute("aria-disabled", "true");
   }
 
-  const metaItems = [
-    `<span class="status-pill success">Претензия сформирована</span>`,
-    `<span class="status-pill muted">ID: ${data.claim_request_id}</span>`,
-  ];
-
-  if (data.use_llm) {
-    metaItems.push(`<span class="status-pill info">LLM включена</span>`);
-  }
-
-  getElement("resultMeta").innerHTML = metaItems.join("");
-  renderLawArticles(data.law_articles || []);
-  renderWarnings(data);
+  renderLegalArticles(data.law_articles || []);
+  renderWarnings(collectWarnings(data));
+  updateSteps();
 }
 
-async function generateClaim() {
-  if (!state.currentFileId) {
-    showMessage("warning", "Нет договора", "Сначала загрузите договор и получите file_id.");
+function renderLegalArticles(lawArticles = []) {
+  const container = getElement("lawArticlesOutput");
+  const seen = new Set();
+  const items = lawArticles
+    .map((item) => item.article || item.title || "")
+    .filter(Boolean)
+    .filter((title) => {
+      const normalized = title.toLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
+    .slice(0, 8);
+
+  if (!items.length) {
+    container.className = "legal-basis empty";
+    container.textContent = "";
     return;
   }
 
-  const payload = {
-    file_id: state.currentFileId,
-    user_request: getElement("userRequest").value,
-    use_llm: getElement("useLlm").checked,
-    manual_fields: buildManualFields(),
-  };
-
-  setLoading("generateButton", true, "Генерируется...");
-  setInlineStatus("generationStatus", "Анализ договора, поиск правовых оснований и подготовка DOCX...");
-
-  try {
-    const data = await requestJson("/claims/generate-delay-claim", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    renderGenerationResult(data);
-    setInlineStatus("generationStatus", "Претензия сформирована", "success");
-    showMessage("success", "Готово", "Претензия сформирована, DOCX доступен для скачивания.");
-    await loadHistory(false);
-  } catch (error) {
-    console.error(error);
-    setInlineStatus("generationStatus", "Ошибка генерации", "error");
-    showMessage("error", "Ошибка генерации", error.message);
-  } finally {
-    setLoading("generateButton", false);
-  }
+  container.className = "legal-basis";
+  container.innerHTML = `
+    <strong>Использованы правовые основания:</strong>
+    <ul>${items.map((title) => `<li>${escapeHtml(title)}</li>`).join("")}</ul>
+  `;
 }
 
-async function loadHistory(showSuccess = true) {
-  setLoading("loadHistoryButton", true, "Обновляется...");
+function collectWarnings(data) {
+  const warnings = [];
+  if (data.web_fallback_used) warnings.push("При подготовке использовался поиск по внешним источникам.");
+  if (data.llm_error) warnings.push("LLM не смогла улучшить текст. Использован базовый проект претензии.");
+  if (data.web_error) warnings.push("Не удалось получить часть материалов из интернета.");
+  const qualityWarnings = data.trace?.quality_checks?.warnings || [];
+  return warnings.concat(qualityWarnings);
+}
 
+function renderWarnings(warnings = []) {
+  const container = getElement("warningsOutput");
+  if (!warnings.length) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = `
+    <div class="warning-card">
+      <strong>Есть рекомендации для проверки</strong>
+      <ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>
+    </div>
+  `;
+}
+
+async function loadHistory(showToastOnSuccess = false) {
+  const button = getElement("loadHistoryButton");
+  setButtonLoading(button, true, "Обновляем...", "Обновить");
   try {
     const data = await requestJson("/claims/history");
-    const container = getElement("historyOutput");
-
-    if (!data.items.length) {
-      container.className = "history-list empty";
-      container.textContent = "История претензий пуста.";
-      if (showSuccess) {
-        showMessage("info", "История пуста", "Сгенерированные претензии пока отсутствуют.");
-      }
-      return;
-    }
-
-    container.className = "history-list";
-    container.innerHTML = data.items.map((item) => {
-      const download = item.download_url
-        ? `<a class="button secondary" href="${API_BASE}${item.download_url}" target="_blank" rel="noreferrer">Скачать DOCX</a>`
-        : "";
-
-      return `
-        <article class="history-card">
-          <header>
-            <div>
-              <p><strong>Запись #${item.id}</strong></p>
-              <p class="muted-text">${item.created_at || "дата не указана"}</p>
-            </div>
-            <div class="history-actions">
-              <button type="button" class="secondary" onclick="openClaim(${item.id})">Показать текст</button>
-              ${download}
-            </div>
-          </header>
-          <p><strong>file_id:</strong> <code>${item.file_id}</code></p>
-          <p><strong>Запрос:</strong> ${item.user_request || ""}</p>
-          <div class="history-preview">${item.preview || "Нет preview"}</div>
-        </article>
-      `;
-    }).join("");
-
-    if (showSuccess) {
-      showMessage("success", "История обновлена", `Найдено записей: ${data.count}`);
-    }
+    console.log("History response", data);
+    renderHistory(data.items || []);
+    if (showToastOnSuccess) showToast("История обновлена", "success");
   } catch (error) {
     console.error(error);
-    showMessage("error", "Ошибка истории", error.message);
+    getElement("historyOutput").className = "history-list empty";
+    getElement("historyOutput").textContent = "Не удалось загрузить историю.";
+    showToast(cleanErrorMessage(error), "error");
   } finally {
-    setLoading("loadHistoryButton", false);
+    setButtonLoading(button, false, "", "Обновить");
   }
 }
 
-async function openClaim(id) {
+function renderHistory(items) {
+  const container = getElement("historyOutput");
+  const lastItems = items.slice(0, 5);
+  if (!lastItems.length) {
+    container.className = "history-list empty";
+    container.textContent = "История пока пуста. Сформируйте первую претензию.";
+    return;
+  }
+
+  container.className = "history-list";
+  container.innerHTML = lastItems.map((item) => {
+    const date = item.created_at ? new Date(item.created_at).toLocaleString("ru-RU") : "Дата не указана";
+    const request = item.user_request || "Запрос не указан";
+    const preview = item.preview || item.result_text || "Текст пока недоступен";
+    const download = item.download_url
+      ? `<a class="button secondary" href="${API_BASE}${item.download_url}" target="_blank" rel="noreferrer">Скачать DOCX</a>`
+      : "";
+    return `
+      <article class="history-card">
+        <header>
+          <div>
+            <h3>Претензия №${escapeHtml(item.id)}</h3>
+            <p class="section-kicker">${escapeHtml(date)}</p>
+          </div>
+          <div class="history-actions">
+            <button type="button" class="secondary" onclick="openHistoryItem(${Number(item.id)})">Открыть</button>
+            ${download}
+          </div>
+        </header>
+        <p><strong>${escapeHtml(request)}</strong></p>
+        <p class="preview-text">${escapeHtml(preview).slice(0, 260)}</p>
+      </article>
+    `;
+  }).join("");
+}
+
+async function openHistoryItem(id) {
   try {
     const data = await requestJson(`/claims/${id}`);
-    state.currentClaimText = data.result_text || "";
-    state.currentDownloadUrl = data.download_url || null;
-    getElement("claimResult").textContent = state.currentClaimText || "Текст претензии пуст.";
-    getElement("copyClaimButton").disabled = !state.currentClaimText;
-    getElement("resultMeta").innerHTML = `
-      <span class="status-pill info">Открыта запись #${data.id}</span>
-      <span class="status-pill muted">file_id: ${data.file_id}</span>
-    `;
-    showMessage("info", "Запись открыта", `Показан полный текст претензии #${id}.`);
+    console.log("History item response", data);
+    switchTab("create");
+    renderGenerationResult({
+      claim_request_id: data.id,
+      claim_text: data.result_text,
+      download_url: data.download_url,
+      law_articles: [],
+    });
+    showToast(`Открыта претензия №${id}`, "success");
   } catch (error) {
     console.error(error);
-    showMessage("error", "Не удалось открыть запись", error.message);
+    showToast(cleanErrorMessage(error), "error");
   }
 }
 
 async function clearHistory() {
-  const confirmed = window.confirm(
-    "Вы уверены, что хотите очистить историю претензий? DOCX-файлы также будут удалены."
-  );
-
-  if (!confirmed) {
-    return;
-  }
-
-  setLoading("clearHistoryButton", true, "Очищается...");
-
+  const confirmed = window.confirm("Удалить историю претензий? Скачанные DOCX-файлы на сервере также будут удалены.");
+  if (!confirmed) return;
+  const button = getElement("clearHistoryButton");
+  setButtonLoading(button, true, "Очищаем...", "Очистить историю");
   try {
     const data = await requestJson("/claims/history", { method: "DELETE" });
-    await loadHistory(false);
-    showMessage(
-      "success",
-      "История очищена",
-      `${data.message}. Удалено записей: ${data.deleted_count}, файлов: ${data.deleted_files_count}.`
-    );
+    console.log("Clear history response", data);
+    renderHistory([]);
+    showToast("История очищена", "success");
   } catch (error) {
     console.error(error);
-    showMessage("error", "Ошибка очистки", error.message);
+    showToast(cleanErrorMessage(error), "error");
   } finally {
-    setLoading("clearHistoryButton", false);
+    setButtonLoading(button, false, "", "Очистить историю");
   }
 }
 
-function renderKnowledgePreview(data) {
-  const preview = data.text_preview
-    ? `<p><strong>Preview:</strong></p><div class="history-preview">${data.text_preview}</div>`
-    : "";
-  getElement("maintenanceOutput").innerHTML = `
-    <p><strong>${data.message || "Материал добавлен"}</strong></p>
-    <p>Длина текста: ${data.text_length ?? "не указана"}</p>
-    ${preview}
-    <p class="muted-text">Рекомендуется выполнить переиндексацию RAG.</p>
-  `;
-}
-
-async function addKnowledgeUrl() {
+async function addRagUrl() {
   const payload = {
     title: getElement("ragUrlTitle").value.trim(),
     source_type: getElement("ragUrlSourceType").value.trim(),
     source_url: getElement("ragSourceUrl").value.trim(),
   };
-
   if (!payload.title || !payload.source_type || !payload.source_url) {
-    showMessage("warning", "Заполните поля", "Для добавления ссылки нужны название, тип источника и URL.");
+    showToast("Заполните название, тип источника и ссылку", "warning");
     return;
   }
 
-  setLoading("addRagUrlButton", true, "Добавляется...");
-
+  const button = getElement("addRagUrlButton");
+  setButtonLoading(button, true, "Добавляем...", "Добавить ссылку");
   try {
     const data = await requestJson("/knowledge/add-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
-    renderKnowledgePreview(data);
+    console.log("RAG URL response", data);
+    getElement("maintenanceOutput").textContent = "Ссылка добавлена. При необходимости переиндексируйте базу.";
     await loadKnowledgeList(false);
-    showMessage("success", "Ссылка добавлена в RAG", "Материал сохранён в базе знаний. Можно выполнить переиндексацию.");
+    showToast("Ссылка добавлена в базу знаний", "success");
   } catch (error) {
     console.error(error);
-    showMessage("error", "Ошибка добавления ссылки", error.message);
+    showToast(cleanErrorMessage(error), "error");
   } finally {
-    setLoading("addRagUrlButton", false);
+    setButtonLoading(button, false, "", "Добавить ссылку");
   }
 }
 
-async function uploadKnowledgeFile() {
-  const fileInput = getElement("ragFile");
+async function uploadRagFile() {
   const title = getElement("ragFileTitle").value.trim();
   const sourceType = getElement("ragFileSourceType").value.trim();
-
-  if (!title || !sourceType || !fileInput.files.length) {
-    showMessage("warning", "Заполните поля", "Для загрузки нужны название, тип источника и файл TXT, DOCX или PDF.");
+  const file = getElement("ragFile").files[0];
+  if (!title || !sourceType || !file) {
+    showToast("Заполните название, тип источника и выберите файл", "warning");
+    return;
+  }
+  if (!isSupportedFile(file)) {
+    showToast("Файл не поддерживается. Используйте TXT, DOCX или PDF", "warning");
     return;
   }
 
   const formData = new FormData();
   formData.append("title", title);
   formData.append("source_type", sourceType);
-  formData.append("file", fileInput.files[0]);
+  formData.append("file", file);
 
-  setLoading("uploadRagFileButton", true, "Загружается...");
-
+  const button = getElement("uploadRagFileButton");
+  setButtonLoading(button, true, "Загружаем...", "Загрузить документ");
   try {
-    const data = await requestJson("/knowledge/upload-file", {
-      method: "POST",
-      body: formData,
-    });
-
-    renderKnowledgePreview(data);
+    const data = await requestJson("/knowledge/upload-file", { method: "POST", body: formData });
+    console.log("RAG file response", data);
+    getElement("maintenanceOutput").textContent = "Документ добавлен. При необходимости переиндексируйте базу.";
     await loadKnowledgeList(false);
-    showMessage("success", "Документ добавлен в RAG", "Материал сохранён в базе знаний. Можно выполнить переиндексацию.");
+    showToast("Документ добавлен в базу знаний", "success");
   } catch (error) {
     console.error(error);
-    showMessage("error", "Ошибка загрузки RAG-документа", error.message);
+    showToast(cleanErrorMessage(error), "error");
   } finally {
-    setLoading("uploadRagFileButton", false);
+    setButtonLoading(button, false, "", "Загрузить документ");
   }
 }
 
-async function loadKnowledgeList(showSuccess = true) {
-  setLoading("loadKnowledgeButton", true, "Обновляется...");
-
+async function loadKnowledgeList(showToastOnSuccess = false) {
+  const button = getElement("loadKnowledgeButton");
+  setButtonLoading(button, true, "Обновляем...", "Обновить список");
   try {
     const data = await requestJson("/knowledge/list");
-    const container = getElement("knowledgeListOutput");
-
-    if (!data.items.length) {
-      container.className = "knowledge-list empty";
-      container.textContent = "База знаний RAG пока пуста.";
-      if (showSuccess) {
-        showMessage("info", "RAG пуст", "Материалы базы знаний пока отсутствуют.");
-      }
-      return;
-    }
-
-    container.className = "knowledge-list";
-    container.innerHTML = `
-      <p><strong>Материалов: ${data.count}</strong></p>
-      ${data.items.map((item) => {
-        const content = item.content || "";
-        const url = item.source_url
-          ? `<p><strong>URL:</strong> <a href="${item.source_url}" target="_blank" rel="noreferrer">${item.source_url}</a></p>`
-          : "";
-
-        return `
-          <article class="knowledge-card">
-            <p><strong>${item.title || "Без названия"}</strong></p>
-            <p><strong>Тип:</strong> ${item.source_type || "не указан"}</p>
-            ${url}
-            <p><strong>Длина content:</strong> ${content.length}</p>
-            <p><strong>Vector chunks:</strong> ${item.vector_chunks_count ?? "не индексировалось"}</p>
-            <div class="history-preview">${content.slice(0, 600) || "Preview отсутствует"}</div>
-          </article>
-        `;
-      }).join("")}
-    `;
-
-    if (showSuccess) {
-      showMessage("success", "Список RAG обновлён", `Материалов: ${data.count}`);
-    }
+    console.log("Knowledge list response", data);
+    renderKnowledgeList(data.items || []);
+    if (showToastOnSuccess) showToast("Список базы знаний обновлен", "success");
   } catch (error) {
     console.error(error);
-    showMessage("error", "Ошибка списка RAG", error.message);
+    getElement("knowledgeListOutput").className = "knowledge-list empty";
+    getElement("knowledgeListOutput").textContent = "Не удалось загрузить список материалов.";
+    showToast(cleanErrorMessage(error), "error");
   } finally {
-    setLoading("loadKnowledgeButton", false);
+    setButtonLoading(button, false, "", "Обновить список");
   }
+}
+
+function renderKnowledgeList(items) {
+  const container = getElement("knowledgeListOutput");
+  if (!items.length) {
+    container.className = "knowledge-list empty";
+    container.textContent = "База знаний пока пуста.";
+    return;
+  }
+
+  container.className = "knowledge-list";
+  container.innerHTML = items.map((item) => {
+    const preview = item.content || item.text_preview || "";
+    const url = item.source_url
+      ? `<a class="source-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noreferrer">${escapeHtml(item.source_url)}</a>`
+      : "";
+    return `
+      <article class="knowledge-card">
+        <header>
+          <div>
+            <h3>${escapeHtml(item.title || "Материал без названия")}</h3>
+            <p class="section-kicker">${escapeHtml(item.source_type || "Тип источника не указан")}</p>
+          </div>
+        </header>
+        ${url ? `<p>${url}</p>` : ""}
+        <p class="preview-text">${escapeHtml(preview).slice(0, 320) || "Описание материала отсутствует."}</p>
+      </article>
+    `;
+  }).join("");
 }
 
 async function reindexKnowledge() {
-  setLoading("reindexButton", true, "Переиндексация...");
-
+  const button = getElement("reindexButton");
+  setButtonLoading(button, true, "Переиндексируем...", "Переиндексировать базу");
   try {
     const data = await requestJson("/knowledge/reindex", { method: "POST" });
+    console.log("RAG reindex response", data);
     const result = data.result || {};
-
-    getElement("maintenanceOutput").innerHTML = `
-      <p><strong>${data.message || "Переиндексация завершена"}</strong></p>
-      <p>Материалов: ${result.items_count ?? 0}</p>
-      <p>Chunks: ${result.total_chunks ?? 0}</p>
-      ${result.vector_error ? `<p class="error">ChromaDB: ${result.vector_error}</p>` : ""}
-    `;
+    const itemsCount = result.items_count ?? 0;
+    const chunksCount = result.total_chunks ?? 0;
+    getElement("maintenanceOutput").textContent = `База переиндексирована. Материалов: ${itemsCount}, фрагментов: ${chunksCount}.`;
     await loadKnowledgeList(false);
-    showMessage("success", "RAG переиндексирован", `Материалов: ${result.items_count ?? 0}, chunks: ${result.total_chunks ?? 0}.`);
+    showToast("База знаний переиндексирована", "success");
   } catch (error) {
     console.error(error);
-    showMessage("error", "Ошибка переиндексации", error.message);
+    showToast(cleanErrorMessage(error), "error");
   } finally {
-    setLoading("reindexButton", false);
+    setButtonLoading(button, false, "", "Переиндексировать базу");
   }
 }
 
 async function copyClaimText() {
   if (!state.currentClaimText) {
-    showMessage("warning", "Нет текста", "Сначала сформируйте или откройте претензию.");
+    showToast("Сначала сформируйте или откройте претензию", "warning");
     return;
   }
-
-  await navigator.clipboard.writeText(state.currentClaimText);
-  showMessage("success", "Текст скопирован", "Текст претензии помещён в буфер обмена.");
-}
-
-async function copyFileId() {
-  if (!state.currentFileId) {
-    showMessage("warning", "Нет file_id", "Сначала загрузите договор.");
-    return;
+  try {
+    await navigator.clipboard.writeText(state.currentClaimText);
+    showToast("Текст скопирован", "success");
+  } catch (error) {
+    console.error(error);
+    showToast("Не удалось скопировать текст", "error");
   }
-
-  await navigator.clipboard.writeText(state.currentFileId);
-  showMessage("success", "file_id скопирован", state.currentFileId);
 }
 
-function resetForm() {
-  getElement("userRequest").value = "Составь претензию по просрочке оказания услуг с ссылками на законодательство";
+function resetClaimForm() {
+  state.currentFileId = null;
+  state.currentFileName = "";
+  state.currentClaimText = "";
+  state.currentDownloadUrl = null;
+  state.lastResponse = null;
+
+  getElement("contractFile").value = "";
+  getElement("userRequest").value = "";
   getElement("violationDate").value = "";
   getElement("violationDescription").value = "";
   getElement("responseDeadline").value = "10";
@@ -538,11 +537,27 @@ function resetForm() {
   getElement("senderAddress").value = "";
   getElement("recipientName").value = "";
   getElement("recipientAddress").value = "";
-  getElement("useLlm").checked = true;
-  showMessage("info", "Форма очищена", "Поля параметров претензии сброшены. Загруженный file_id сохранён.");
+
+  getElement("uploadStatus").className = "status-badge neutral";
+  getElement("uploadStatus").textContent = "Ожидает файл";
+  getElement("fileInfo").className = "file-summary empty";
+  getElement("fileInfo").textContent = "Выберите файл в формате TXT, DOCX или PDF.";
+  getElement("generateButton").disabled = true;
+  getElement("generationStatus").textContent = "Претензия еще не сформирована.";
+  getElement("resultActions").classList.add("hidden");
+  getElement("claimResult").className = "document-card empty";
+  getElement("claimResult").textContent = "После генерации здесь появится готовый текст претензии.";
+  getElement("lawArticlesOutput").className = "legal-basis empty";
+  getElement("lawArticlesOutput").textContent = "";
+  getElement("warningsOutput").innerHTML = "";
+
+  updateSteps();
+  showToast("Форма очищена", "success");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  getElement("userRequest").addEventListener("input", updateSteps);
   loadHistory(false);
   loadKnowledgeList(false);
+  updateSteps();
 });
