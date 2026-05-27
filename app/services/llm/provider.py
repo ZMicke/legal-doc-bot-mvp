@@ -1,6 +1,7 @@
 import requests
 
 from app.config import settings
+<<<<<<< HEAD
 import time
 import logging
 import json
@@ -13,6 +14,8 @@ logger = logging.getLogger(__name__)
 LOG_DIR = "/app/logs/model_comparison"
 os.makedirs(LOG_DIR, exist_ok=True)
 
+=======
+>>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
 
 
 class LLMError(Exception):
@@ -29,6 +32,7 @@ def build_claim_improvement_prompt(
 ) -> str:
     manual_fields = manual_fields or {}
     claim_classification = claim_classification or {}
+<<<<<<< HEAD
     customer_name = contract_analysis.get("customer_name", "Заказчик")
     contractor_name = contract_analysis.get("contractor_name", "Исполнитель")
     contract_number = contract_analysis.get("contract_number", "номер не указан")
@@ -83,6 +87,43 @@ def build_claim_improvement_prompt(
 {law_articles}
 
 ## Черновик претензии:
+=======
+
+    return f"""
+Ты юридический помощник предприятия.
+
+Сформируй итоговую претензию строго в соответствии с claim_type и claim_title.
+Если claim_type=payment_delay, не используй формулировки про оказание услуг, если это прямо не следует из договора.
+Если claim_type отличается от services_delay, не превращай документ в претензию по оказанию услуг.
+
+Результат — только текст официального документа без Markdown.
+Не добавляй комментарии, пояснения, вступления вроде "Вот исправленный вариант".
+
+КРИТИЧЕСКИ ВАЖНО:
+1. Не меняй тип претензии и заголовок по смыслу.
+2. Не выдумывай адреса, даты, суммы, реквизиты, номера договоров и обстоятельства.
+3. Не меняй ручные поля пользователя: sender_name, sender_address, recipient_name, recipient_address, violation_date, penalty_amount, response_deadline.
+4. Не добавляй статьи закона, которых нет в law_articles.
+5. Не используй markdown-разметку, таблицы и декоративные элементы.
+6. Сохрани структуру официального документа и деловой тон.
+
+Классификация претензии:
+{claim_classification}
+
+Ручные поля пользователя:
+{manual_fields}
+
+Запрос пользователя:
+{user_request}
+
+Анализ договора:
+{contract_analysis}
+
+Найденные правовые основания:
+{law_articles}
+
+Черновик претензии:
+>>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
 {draft_claim}
 """
 
@@ -131,12 +172,15 @@ def call_openrouter(prompt: str) -> str:
 
 
 def call_ollama(prompt: str) -> str:
+<<<<<<< HEAD
 
     logger.info(f"Промпт для LLM (первые 500 символов):\n{prompt[:500]}...")
     logger.info(f"Длина промпта: {len(prompt)} символов")
 
     start_time = time.time()
 
+=======
+>>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
     payload = {
         "model": settings.OLLAMA_MODEL,
         "messages": [
@@ -153,12 +197,16 @@ def call_ollama(prompt: str) -> str:
         "options": {"temperature": 0.1},
     }
 
+<<<<<<< HEAD
     logger.info(f"Запрос к Ollama: {json.dumps(payload, ensure_ascii=False)[:500]}...")
 
+=======
+>>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
     url = f"{settings.OLLAMA_BASE_URL}/api/chat"
 
     try:
         response = requests.post(url, json=payload, timeout=180)
+<<<<<<< HEAD
 
         logger.info(f"Статус ответа: {response.status_code}")
         logger.info(f"Длина ответа: {len(response.text)} символов")
@@ -205,6 +253,16 @@ def call_ollama(prompt: str) -> str:
 
     try:
         return data["message"]["content"], answer
+=======
+        response.raise_for_status()
+    except requests.RequestException as error:
+        raise LLMError(f"Ошибка Ollama: {error}")
+
+    data = response.json()
+
+    try:
+        return data["message"]["content"]
+>>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
     except KeyError:
         raise LLMError("Ollama вернула неожиданный формат ответа")
 
@@ -233,6 +291,7 @@ def improve_claim_with_llm(
 
     if provider == "ollama":
         return call_ollama(prompt)
+<<<<<<< HEAD
     
     if isinstance(result, tuple):
         print(f"ВНИМАНИЕ: LLM вернул кортеж, берем первый элемент")
@@ -246,3 +305,7 @@ def improve_claim_with_llm(
 
 
 
+=======
+
+    raise LLMError(f"Неизвестный LLM_PROVIDER: {settings.LLM_PROVIDER}")
+>>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
