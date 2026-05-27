@@ -68,7 +68,6 @@ def evaluate_claim_quality(
             f"Тип претензии {claim_type}, но текст содержит много формулировок про оказание услуг"
         )
 
-<<<<<<< HEAD
     quality_metrics = {
         "has_markdown": "**" in claim_text or "__" in claim_text,
         "has_unexpected_articles": len(unexpected_articles) > 0,
@@ -80,9 +79,6 @@ def evaluate_claim_quality(
 
     return {
         **quality_metrics,
-=======
-    return {
->>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
         "manual_fields_preserved": manual_preserved,
         "forbidden_topic_shift_detected": forbidden_topic_shift_detected,
         "unexpected_articles": unexpected_articles,

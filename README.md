@@ -45,7 +45,7 @@ docker compose up --build -d
 
 ```env
 APP_NAME=Legal Document Bot MVP
-DATABASE_URL=postgresql+psycopg2://postgres:postgres@postgres:5432/legal_bot
+DATABASE_URL=postgresql+psycopg2://postgres:0000@postgres:5432/legal_bot
 UPLOAD_DIR=uploads
 GENERATED_DIR=generated
 LLM_PROVIDER=ollama

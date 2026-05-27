@@ -12,7 +12,6 @@ from app.config import settings
 SECTION_PATTERN = re.compile(r"^\d+\.\s+")
 
 
-<<<<<<< HEAD
 def clean_markdown(text):
     # Защита от неправильного типа
     if not isinstance(text, str):
@@ -30,13 +29,6 @@ def clean_markdown(text):
     text = text.replace("#", "")
     text = text.replace("*", "")
     
-=======
-def clean_markdown(text: str) -> str:
-    text = text.replace("**", "")
-    text = text.replace("__", "")
-    text = re.sub(r"^\s*[-*]\s+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"`([^`]*)`", r"\1", text)
->>>>>>> a2828f9fff27ad6b91d9c7457191682e35304ae2
     return text.strip()
 
 
