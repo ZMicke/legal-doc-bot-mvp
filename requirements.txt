@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+pydantic-settings
+sqlalchemy
+psycopg2-binary
+python-docx
+pypdf
+requests
+beautifulsoup4
+python-dotenv
+chromadb
+sentence-transformers
