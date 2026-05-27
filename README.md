@@ -48,11 +48,9 @@ APP_NAME=Legal Document Bot MVP
 DATABASE_URL=postgresql+psycopg2://postgres:postgres@postgres:5432/legal_bot
 UPLOAD_DIR=uploads
 GENERATED_DIR=generated
-LLM_PROVIDER=openrouter
-OPENROUTER_API_KEY=
-OPENROUTER_MODEL=google/gemini-2.5-flash-lite
-OLLAMA_BASE_URL=http://host.docker.internal:11434
-OLLAMA_MODEL=qwen2.5:7b
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://host.docker.internal:11434 или любой нужный адрес
+OLLAMA_MODEL=yandex/YandexGPT-5-Lite-8B-instruct-GGUF:latest
 CHROMA_DIR=chroma_db
 EMBEDDING_MODEL=intfloat/multilingual-e5-base
 WEB_FALLBACK_URLS=
@@ -119,47 +117,17 @@ Backend при старте создаёт таблицы и безопасно 
 
 ## Работа С LLM
 
-### OpenRouter
-
-В `.env`:
-
-```env
-LLM_PROVIDER=openrouter
-OPENROUTER_API_KEY=ваш_ключ
-OPENROUTER_MODEL=google/gemini-2.5-flash-lite
-```
-
-### Ollama
-
-Установите Ollama на хосте и скачайте модель:
-
-```powershell
-ollama pull qwen2.5:7b
-```
-
 В `.env`:
 
 ```env
 LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://host.docker.internal:11434
-OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_BASE_URL=http://host.docker.internal:11434 или любой нужный адрес (http://10.68.98.206:11434)
+OLLAMA_MODEL=qwen2.5:7b или любая нужная модель 
 ```
 
 Если LLM недоступна, генерация не падает: backend возвращает черновик и заполняет `llm_error`.
 
-## Универсальная Генерация И Trace
 
-`POST /claims/generate` принимает `claim_type`:
-
-- `auto`: определить тип автоматически;
-- `services_delay`: просрочка оказания услуг;
-- `payment_delay`: неоплата или задолженность;
-- `delivery_delay`: просрочка поставки;
-- `defective_goods`: некачественный товар;
-- `refund`: возврат денежных средств;
-- `custom`: свободная претензия.
-
-Ответ содержит `trace`: шаги выполнения, классификацию, найденные статьи, время RAG/LLM, общее время и предупреждения качества. Эти данные отображаются во frontend на вкладке `Диагностика LLM`.
 
 ## Работа С RAG
 
@@ -181,45 +149,6 @@ OLLAMA_MODEL=qwen2.5:7b
 
 Эти директории подключены в `docker-compose.yml` как bind volumes, поэтому данные сохраняются между перезапусками контейнеров.
 
-## Типовые Ошибки
 
-- Backend не подключается к БД: проверьте `docker compose logs -f backend` и `docker compose logs -f postgres`; внутри Docker `DATABASE_URL` должен использовать host `postgres`.
-- Frontend не видит backend: проверьте, что backend доступен на `http://127.0.0.1:8000/health`.
-- CORS: в `app/main.py` включены `allow_origins=["*"]`, `allow_methods=["*"]`, `allow_headers=["*"]`.
-- `docx_path column does not exist`: перезапустите backend; стартовая инициализация добавляет колонку автоматически.
-- ChromaDB/sentence-transformers долго устанавливаются: это ожидаемо при первой сборке, образ скачивает ML-зависимости.
-- OpenRouter 401: проверьте `OPENROUTER_API_KEY`.
-- Ollama недоступна: проверьте `ollama run qwen2.5:7b` на хосте и `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
 
-## Разворачивание На Предприятии
 
-Перед запуском:
-
-- проверить Docker и Docker Compose;
-- проверить доступ к интернету для OpenRouter или заранее выбрать Ollama;
-- уточнить, разрешены ли внешние LLM API;
-- подготовить тестовые договоры;
-- проверить генерацию DOCX;
-- проверить пополнение и переиндексацию RAG;
-- проверить логи контейнеров.
-
-Команды:
-
-```powershell
-docker compose ps
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f postgres
-```
-
-Остановка:
-
-```powershell
-docker compose down
-```
-
-Полная очистка PostgreSQL volume:
-
-```powershell
-docker compose down -v
-```
